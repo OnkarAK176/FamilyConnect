@@ -1,0 +1,12 @@
+node_modules/
+frontend/dist/
+backend/target/
+backend/.gradle/
+backend/.idea/
+backend/.vscode/
+backend/*.iml
+backend.zip
+backend/deps.txt
+backend/mvn.log
+.env
+.DS_Store
