@@ -12,3 +12,9 @@ services:
         generateValue: true
       - key: FAMILYCONNECT_ALLOWED_ORIGINS
         value: https://your-netlify-site.netlify.app
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false

@@ -16,6 +16,7 @@ This repository is intentionally a prototype-first implementation. It validates 
 ## Secret management
 
 Environment variables should be loaded from a secure runtime environment or secret manager. A sample file is included at `.env.example`.
+LiveKit Cloud credentials (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`) must only be stored in the backend runtime environment, never in frontend variables or the repository.
 
 ## CORS and origin policy
 
@@ -23,7 +24,7 @@ The backend reads allowed origins from the `FAMILYCONNECT_ALLOWED_ORIGINS` envir
 
 ## Room token model
 
-The current token payload includes:
+The legacy family-access token payload includes:
 
 - room code
 - family ID
@@ -31,6 +32,8 @@ The current token payload includes:
 - expiry timestamp
 
 The token is signed with HMAC-SHA256 before being issued to the client. This is appropriate for a prototype, but production deployments should also validate the token server-side before accepting room joins.
+
+LiveKit participant tokens are separately signed with the LiveKit API secret, expire after two hours, use opaque participant IDs and room names, and grant access to one room. Rooms are created with a 20-participant maximum.
 
 ## Recommended next deployment milestone
 
@@ -40,4 +43,4 @@ Before moving to a broader production rollout:
 2. add managed secret storage
 3. add HTTPS and a trusted reverse proxy
 4. validate room access and invite lifecycle with integration tests
-5. test load assumptions for up to 50 concurrent participants
+5. test group-call behavior at the configured 20-participant room limit

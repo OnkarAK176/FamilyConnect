@@ -2,9 +2,9 @@
 
 ## Phase 0 — Inspect and plan
 
-- Confirm architecture: React frontend, Java Spring Boot API, PostgreSQL, LiveKit WebRTC, managed free tier.
+- Confirm architecture: TypeScript frontend, Java Spring Boot API, H2 prototype storage, LiveKit WebRTC, managed free tier.
 - Decide on a prototype-first approach that stays within a free-tier budget and accepts that limits may apply.
-- Choose a simple, secure family workflow: invite-only membership and room-only access.
+- Choose a simple family workflow: private call links and room-scoped access.
 - Define the repository layout and validation workflow before implementation.
 
 ## Phase 1 — Scaffold repository
@@ -25,7 +25,7 @@
 - Issue signed, short-lived LiveKit tokens for approved participants.
 - Avoid exposing private credentials to the browser.
 
-## Phase 4 — React meeting interface
+## Phase 4 — Multi-participant calling interface
 
 - Build a responsive meeting screen with participant list and join controls.
 - Support dial-in-friendly mobile views and desktop layouts.
@@ -35,10 +35,10 @@
 - Connect frontend login and room flows to backend APIs.
 - Validate room join and meeting data models end-to-end.
 
-## Phase 6 — Performance and 50-participant preparation
+## Phase 6 — Performance and 20-participant preparation
 
 - Measure join latency, room initialization, and network assumptions.
-- Document scaling limits and recommended 50-person testing strategy.
+- Document the 20-person room limit and managed SFU quota constraints.
 
 ## Phase 7 — Deployment and security review
 

@@ -12,5 +12,8 @@
     "@rolldown/binding-win32-x64-msvc": "^1.2.13",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "livekit-client": "^2.22.4"
   }
 }

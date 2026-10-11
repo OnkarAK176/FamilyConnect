@@ -1,7 +1,13 @@
+import type { RemoteParticipant, Room, RoomEvent, Track } from 'livekit-client'
 import './style.css'
 
+type CallTokenResponse = {
+  serverUrl: string
+  participantToken: string
+  participantIdentity: string
+}
+
 const API_BASE = (import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api').replace(/\/$/, '')
-const SIGNAL_URL = `${API_BASE.replace(/^http/, 'ws').replace(/\/api$/, '')}/signal`
 const app = document.querySelector<HTMLDivElement>('#app')
 
 if (!app) {
@@ -18,7 +24,7 @@ app.innerHTML = `
     <section class="join-card" id="joinCard">
       <p class="eyebrow">A little closer, wherever you are</p>
       <h2 id="welcomeTitle">Start a family call</h2>
-      <p class="intro">Create a call and send the private link to your brother. He can join from his phone or computer.</p>
+      <p class="intro">Invite up to 19 family members to join you in a secure video call.</p>
       <label for="displayName">Your name</label>
       <input id="displayName" maxlength="60" autocomplete="name" placeholder="Enter your name" />
       <div class="join-actions">
@@ -32,20 +38,16 @@ app.innerHTML = `
     <section class="call-screen" id="callScreen" hidden>
       <header class="call-header">
         <div><p class="eyebrow">Family room</p><h2 id="roomLabel">Call</h2></div>
-        <span class="connection-state" id="connectionState" role="status">Connecting…</span>
+        <div class="call-meta">
+          <span class="participant-count" id="participantCount">1 / 20 people</span>
+          <span class="connection-state" id="connectionState" role="status">Connecting…</span>
+        </div>
       </header>
-      <div class="video-grid">
+      <div class="video-grid" id="participantGrid">
         <article class="video-tile local-tile">
           <video id="localVideo" autoplay playsinline muted></video>
+          <div class="camera-placeholder">Camera off</div>
           <span class="video-name" id="localName">You</span>
-        </article>
-        <article class="video-tile remote-tile" id="remoteTile">
-          <video id="remoteVideo" autoplay playsinline></video>
-          <div class="waiting-message" id="waitingMessage">
-            <div class="waiting-avatar">?</div>
-            <p>Waiting for your brother to join…</p>
-          </div>
-          <span class="video-name" id="remoteName">Family</span>
         </article>
       </div>
       <div class="call-actions">
@@ -57,7 +59,7 @@ app.innerHTML = `
       <p class="call-status" id="callStatus" aria-live="polite"></p>
     </section>
 
-    <footer>Calls connect directly between your devices. Keep the invite link private.</footer>
+    <footer>Calls use an encrypted media connection. Keep the invite link private.</footer>
   </main>
 `
 
@@ -71,23 +73,22 @@ const welcomeTitle = $('#welcomeTitle')!
 const callStatus = $('#callStatus')!
 const joinStatus = $('#joinStatus')!
 const connectionState = $('#connectionState')!
+const participantCount = $('#participantCount')!
+const participantGrid = $('#participantGrid')!
 const localVideo = $('#localVideo') as HTMLVideoElement
-const remoteVideo = $('#remoteVideo') as HTMLVideoElement
-const remoteTile = $('#remoteTile')!
-const waitingMessage = $('#waitingMessage')!
+const localName = $('#localName')!
 const micButton = $('#micButton')!
 const cameraButton = $('#cameraButton')!
-const inviteButton = $('#copyLink')!
 const roomCode = new URLSearchParams(location.search).get('room')
+const participantTiles = new Map<string, HTMLVideoElement>()
+const remoteAudioElements = new Map<string, HTMLMediaElement[]>()
 
-let localStream: MediaStream | undefined
-let remoteStream: MediaStream | undefined
-let peerConnection: RTCPeerConnection | undefined
-let signalingSocket: WebSocket | undefined
+let room: Room | undefined
 let activeRoom = ''
 let activeName = ''
+let muted = false
+let cameraOff = false
 let shuttingDown = false
-let pendingCandidates: RTCIceCandidateInit[] = []
 
 if (roomCode && /^[a-f0-9]{32}$/.test(roomCode)) {
   welcomeTitle.textContent = 'You’ve been invited to a family call'
@@ -108,123 +109,145 @@ function setCallStatus(message: string, error = false) {
   callStatus.classList.toggle('error', error)
 }
 
-function sendSignal(message: Record<string, unknown>) {
-  if (signalingSocket?.readyState !== WebSocket.OPEN) {
-    throw new Error('The call connection was interrupted. Please leave and rejoin.')
-  }
-  signalingSocket.send(JSON.stringify(message))
+function updateParticipantCount() {
+  participantCount.textContent = `${(room?.remoteParticipants.size ?? 0) + 1} / 20 people`
 }
 
-async function flushCandidates() {
-  if (!peerConnection?.remoteDescription) return
-  for (const candidate of pendingCandidates) {
-    await peerConnection.addIceCandidate(candidate)
-  }
-  pendingCandidates = []
+function createParticipantTile(participant: RemoteParticipant) {
+  const existing = participantTiles.get(participant.identity)
+  if (existing) return existing
+
+  const tile = document.createElement('article')
+  tile.className = 'video-tile participant-tile'
+  tile.dataset.participant = participant.identity
+
+  const video = document.createElement('video')
+  video.autoplay = true
+  video.playsInline = true
+  tile.append(video)
+
+  const waiting = document.createElement('div')
+  waiting.className = 'waiting-message'
+  const avatar = document.createElement('div')
+  avatar.className = 'waiting-avatar'
+  avatar.textContent = (participant.name || 'F').trim().charAt(0).toUpperCase()
+  const label = document.createElement('p')
+  label.className = 'waiting-label'
+  label.textContent = participant.name || 'Family member'
+  waiting.append(avatar, label)
+  tile.append(waiting)
+
+  const name = document.createElement('span')
+  name.className = 'video-name'
+  name.textContent = participant.name || 'Family member'
+  tile.append(name)
+
+  participantGrid.append(tile)
+  participantTiles.set(participant.identity, video)
+  updateParticipantCount()
+  return video
 }
 
-async function createPeerConnection() {
-  if (peerConnection) return peerConnection
+function removeParticipant(participant: RemoteParticipant) {
+  participantTiles.get(participant.identity)?.closest('.video-tile')?.remove()
+  participantTiles.delete(participant.identity)
+  for (const element of remoteAudioElements.get(participant.identity) ?? []) {
+    element.remove()
+  }
+  remoteAudioElements.delete(participant.identity)
+  updateParticipantCount()
+}
 
-  const connection = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  })
-  peerConnection = connection
-  remoteStream = new MediaStream()
-  remoteVideo.srcObject = remoteStream
-
-  for (const track of localStream!.getTracks()) {
-    connection.addTrack(track, localStream!)
+function subscribeTrack(track: Track, participant: RemoteParticipant) {
+  if (track.kind === 'video') {
+    const video = createParticipantTile(participant)
+    track.attach(video)
+    video.closest('.video-tile')?.classList.add('has-video')
+    return
   }
 
-  connection.ontrack = (event) => {
-    for (const track of event.streams[0]?.getTracks() ?? [event.track]) {
-      if (!remoteStream!.getTracks().some((existing) => existing.id === track.id)) {
-        remoteStream!.addTrack(track)
-      }
+  const audio = track.attach()
+  audio.classList.add('remote-audio')
+  document.body.append(audio)
+  const elements = remoteAudioElements.get(participant.identity) ?? []
+  elements.push(audio)
+  remoteAudioElements.set(participant.identity, elements)
+}
+
+function unsubscribeTrack(track: Track, participant: RemoteParticipant) {
+  const elements = track.detach()
+  for (const element of elements) {
+    if (element instanceof HTMLAudioElement) {
+      element.remove()
+      const remaining = (remoteAudioElements.get(participant.identity) ?? []).filter((audio) => audio !== element)
+      if (remaining.length) remoteAudioElements.set(participant.identity, remaining)
+      else remoteAudioElements.delete(participant.identity)
+    } else if (element instanceof HTMLVideoElement) {
+      const tile = element.closest('.video-tile')
+      tile?.classList.remove('has-video')
+      element.srcObject = null
     }
-    waitingMessage.setAttribute('hidden', '')
-    remoteTile.classList.add('has-video')
   }
+}
 
-  connection.onicecandidate = (event) => {
-    if (event.candidate) {
-      try {
-        sendSignal({ type: 'candidate', candidate: event.candidate.toJSON() })
-      } catch (error) {
-        setConnectionState('Call disconnected', true)
-        setCallStatus(error instanceof Error ? error.message : 'Call signaling stopped.', true)
-      }
-    }
-  }
-
-  connection.onconnectionstatechange = () => {
-    if (connection.connectionState === 'connected') {
+function registerRoomEvents(callRoom: Room, roomEvents: typeof RoomEvent) {
+  callRoom
+    .on(roomEvents.Connected, () => {
       setConnectionState('Connected')
-      setCallStatus(`You’re talking with ${$('#remoteName')!.textContent}.`)
-    } else if (connection.connectionState === 'failed') {
-      setConnectionState('Connection failed', true)
-      setCallStatus('A direct connection could not be made on this network. Try another network or contact support.', true)
-    } else if (connection.connectionState === 'disconnected') {
-      setConnectionState('Reconnecting…')
-    }
-  }
-
-  return connection
+      setCallStatus('Your family call is ready. Share the invite link to bring everyone in.')
+      updateParticipantCount()
+    })
+    .on(roomEvents.Reconnecting, () => setConnectionState('Reconnecting…'))
+    .on(roomEvents.Reconnected, () => setConnectionState('Connected'))
+    .on(roomEvents.Disconnected, () => {
+      updateParticipantCount()
+      if (!shuttingDown) {
+        setConnectionState('Disconnected', true)
+        setCallStatus('You were disconnected from the call. Please leave and rejoin.', true)
+      }
+    })
+    .on(roomEvents.ConnectionStateChanged, (state) => {
+      if (state === 'connecting') setConnectionState('Connecting…')
+    })
+    .on(roomEvents.ParticipantConnected, (participant) => {
+      createParticipantTile(participant)
+      updateParticipantCount()
+    })
+    .on(roomEvents.ParticipantDisconnected, (participant) => {
+      removeParticipant(participant)
+    })
+    .on(roomEvents.TrackSubscribed, (track, _publication, participant) => {
+      subscribeTrack(track, participant)
+    })
+    .on(roomEvents.TrackUnsubscribed, (track, _publication, participant) => {
+      unsubscribeTrack(track, participant)
+    })
+    .on(roomEvents.LocalTrackPublished, (publication) => {
+      if (publication.track?.kind === 'video') {
+        publication.track.attach(localVideo)
+        localVideo.closest('.video-tile')?.classList.toggle('has-video', !cameraOff)
+      }
+    })
+    .on(roomEvents.LocalTrackUnpublished, (publication) => {
+      if (publication.track?.kind === 'video') {
+        publication.track.detach(localVideo)
+        localVideo.srcObject = null
+        localVideo.closest('.video-tile')?.classList.remove('has-video')
+      }
+    })
+    .on(roomEvents.TrackMuted, (_publication, participant) => {
+      if (participant.isLocal) return
+      const video = participantTiles.get(participant.identity)
+      if (video && !participant.isCameraEnabled) video.closest('.video-tile')?.classList.remove('has-video')
+    })
+    .on(roomEvents.TrackUnmuted, (_publication, participant) => {
+      if (participant.isLocal) return
+      const video = participantTiles.get(participant.identity)
+      if (video && participant.isCameraEnabled) video.closest('.video-tile')?.classList.add('has-video')
+    })
 }
 
-async function handleSignal(event: MessageEvent<string>) {
-  const message = JSON.parse(event.data) as {
-    type: string
-    candidate?: RTCIceCandidateInit
-    description?: RTCSessionDescriptionInit
-  }
-
-  if (message.type === 'peer-present') {
-    setConnectionState('Your brother is in the call')
-    return
-  }
-  if (message.type === 'peer-joined') {
-    setConnectionState('Calling your brother…')
-    const connection = await createPeerConnection()
-    const offer = await connection.createOffer()
-    await connection.setLocalDescription(offer)
-    sendSignal({ type: 'offer', description: connection.localDescription })
-    return
-  }
-  if (message.type === 'peer-left') {
-    setConnectionState('Your brother left the call')
-    setCallStatus('Your brother has left the call.')
-    remoteStream?.getTracks().forEach((track) => track.stop())
-    remoteStream = new MediaStream()
-    remoteVideo.srcObject = remoteStream
-    waitingMessage.removeAttribute('hidden')
-    remoteTile.classList.remove('has-video')
-    peerConnection?.close()
-    peerConnection = undefined
-    return
-  }
-
-  const connection = await createPeerConnection()
-  if (message.type === 'offer' && message.description) {
-    await connection.setRemoteDescription(message.description)
-    await flushCandidates()
-    const answer = await connection.createAnswer()
-    await connection.setLocalDescription(answer)
-    sendSignal({ type: 'answer', description: connection.localDescription })
-  } else if (message.type === 'answer' && message.description) {
-    await connection.setRemoteDescription(message.description)
-    await flushCandidates()
-  } else if (message.type === 'candidate' && message.candidate) {
-    if (connection.remoteDescription) {
-      await connection.addIceCandidate(message.candidate)
-    } else {
-      pendingCandidates.push(message.candidate)
-    }
-  }
-}
-
-async function joinRoom(room: string) {
+async function joinRoom(roomName: string) {
   activeName = displayNameInput.value.trim()
   if (!activeName) {
     displayNameInput.focus()
@@ -234,81 +257,97 @@ async function joinRoom(room: string) {
   }
 
   shuttingDown = false
-  activeRoom = room
+  activeRoom = roomName
   joinStatus.textContent = ''
   joinStatus.classList.remove('error')
   setCallStatus('')
   joinCard.setAttribute('hidden', '')
   callScreen.removeAttribute('hidden')
-  $('#roomLabel')!.textContent = `Family call · ${room.slice(0, 6)}`
-  $('#localName')!.textContent = `${activeName} (you)`
-  $('#remoteName')!.textContent = 'Your brother'
-  setConnectionState('Requesting camera and microphone…')
+  $('#roomLabel')!.textContent = `Family call · ${roomName.slice(0, 6)}`
+  localName.textContent = `${activeName} (you)`
+  setConnectionState('Connecting to the call…')
 
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-    localVideo.srcObject = localStream
-    setConnectionState('Waking the call server…')
-    const health = await fetch(`${API_BASE}/health`)
-    if (!health.ok) throw new Error('The call server did not become ready. Please retry in a moment.')
-    setConnectionState('Connecting to the call…')
-
-    signalingSocket = new WebSocket(`${SIGNAL_URL}?room=${encodeURIComponent(room)}`)
-    signalingSocket.addEventListener('open', () => {
-      setConnectionState('Waiting for your brother…')
-      inviteButton.removeAttribute('disabled')
+    const response = await fetch(`${API_BASE}/calls/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roomName, participantName: activeName }),
     })
-    signalingSocket.addEventListener('message', (event: MessageEvent<string>) => {
-      void handleSignal(event).catch((error: unknown) => {
-        setConnectionState('Could not establish the call', true)
-        setCallStatus(error instanceof Error ? error.message : 'Call setup failed.', true)
-      })
-    })
-    signalingSocket.addEventListener('error', () => {
-      setConnectionState('Call server unavailable', true)
-      setCallStatus('Could not connect to the call server. Please try again in a moment.', true)
-    })
-    signalingSocket.addEventListener('close', () => {
-      if (!shuttingDown) {
-        setConnectionState('Call disconnected', true)
-        setCallStatus('The call server disconnected. Please leave and rejoin.', true)
+    if (!response.ok) {
+      const body = await response.text()
+      let message = body
+      try {
+        const errorBody = JSON.parse(body) as { message?: string; detail?: string }
+        message = errorBody.message ?? errorBody.detail ?? body
+      } catch {
+        // Keep the server response text when it is not a JSON error.
       }
+      throw new Error(message || `Could not prepare call (${response.status}).`)
+    }
+
+    const credentials = await response.json() as CallTokenResponse
+    const liveKit = await import('livekit-client')
+    const callRoom = new liveKit.Room({ adaptiveStream: true, dynacast: true })
+    room = callRoom
+    registerRoomEvents(callRoom, liveKit.RoomEvent)
+
+    await callRoom.prepareConnection(credentials.serverUrl, credentials.participantToken)
+    await callRoom.connect(credentials.serverUrl, credentials.participantToken)
+    const localTracks = await liveKit.createLocalTracks({
+      audio: true,
+      video: { resolution: liveKit.VideoPresets.h360.resolution, frameRate: 20 },
     })
+    for (const track of localTracks) {
+      await callRoom.localParticipant.publishTrack(track)
+      if (track.kind === 'video') {
+        track.attach(localVideo)
+        localVideo.closest('.video-tile')?.classList.add('has-video')
+      }
+    }
+    updateParticipantCount()
   } catch (error) {
+    await room?.disconnect()
+    room = undefined
     setConnectionState('Could not join the call', true)
     setCallStatus(
       error instanceof DOMException && error.name === 'NotAllowedError'
         ? 'Camera or microphone permission was denied. Allow access in your browser settings, then try again.'
         : error instanceof Error
           ? error.message
-          : 'Could not start your camera and microphone.',
+          : 'Could not start the call. Please try again.',
       true,
     )
-    localStream?.getTracks().forEach((track) => track.stop())
-    localStream = undefined
+    localVideo.srcObject = null
+    localVideo.closest('.video-tile')?.classList.remove('has-video')
     callScreen.setAttribute('hidden', '')
     joinCard.removeAttribute('hidden')
   }
 }
 
-function leaveCall() {
+async function leaveCall() {
   shuttingDown = true
-  signalingSocket?.close()
-  peerConnection?.close()
-  localStream?.getTracks().forEach((track) => track.stop())
-  remoteStream?.getTracks().forEach((track) => track.stop())
-  signalingSocket = undefined
-  peerConnection = undefined
-  localStream = undefined
-  remoteStream = undefined
-  pendingCandidates = []
+  await room?.disconnect()
+  room = undefined
+  for (const video of participantTiles.values()) {
+    video.closest('.video-tile')?.remove()
+  }
+  participantTiles.clear()
+  for (const elements of remoteAudioElements.values()) {
+    for (const element of elements) element.remove()
+  }
+  remoteAudioElements.clear()
   localVideo.srcObject = null
-  remoteVideo.srcObject = null
-  waitingMessage.removeAttribute('hidden')
-  remoteTile.classList.remove('has-video')
+  localVideo.closest('.video-tile')?.classList.remove('has-video')
   callScreen.setAttribute('hidden', '')
   joinCard.removeAttribute('hidden')
   setCallStatus('')
+  muted = false
+  cameraOff = false
+  micButton.textContent = 'Mute mic'
+  cameraButton.textContent = 'Turn camera off'
+  micButton.setAttribute('aria-pressed', 'false')
+  cameraButton.setAttribute('aria-pressed', 'false')
+
   if (roomCode) {
     location.assign(location.pathname)
   } else {
@@ -318,9 +357,9 @@ function leaveCall() {
 }
 
 startButton.addEventListener('click', () => {
-  const room = crypto.randomUUID().replaceAll('-', '')
-  history.replaceState(null, '', `${location.pathname}?room=${room}`)
-  void joinRoom(room)
+  const newRoom = crypto.randomUUID().replaceAll('-', '')
+  history.replaceState(null, '', `${location.pathname}?room=${newRoom}`)
+  void joinRoom(newRoom)
 })
 
 joinButton.addEventListener('click', () => {
@@ -328,29 +367,38 @@ joinButton.addEventListener('click', () => {
 })
 
 micButton.addEventListener('click', () => {
-  const track = localStream?.getAudioTracks()[0]
-  if (!track) return
-  track.enabled = !track.enabled
-  micButton.textContent = track.enabled ? 'Mute mic' : 'Unmute mic'
-  micButton.setAttribute('aria-pressed', String(!track.enabled))
+  if (!room) return
+  muted = !muted
+  void room.localParticipant.setMicrophoneEnabled(!muted).then(() => {
+    micButton.textContent = muted ? 'Unmute mic' : 'Mute mic'
+    micButton.setAttribute('aria-pressed', String(muted))
+  }).catch((error: unknown) => {
+    muted = !muted
+    setCallStatus(error instanceof Error ? error.message : 'Could not change microphone state.', true)
+  })
 })
 
 cameraButton.addEventListener('click', () => {
-  const track = localStream?.getVideoTracks()[0]
-  if (!track) return
-  track.enabled = !track.enabled
-  cameraButton.textContent = track.enabled ? 'Turn camera off' : 'Turn camera on'
-  cameraButton.setAttribute('aria-pressed', String(!track.enabled))
+  if (!room) return
+  cameraOff = !cameraOff
+  void room.localParticipant.setCameraEnabled(!cameraOff).then(() => {
+    cameraButton.textContent = cameraOff ? 'Turn camera on' : 'Turn camera off'
+    cameraButton.setAttribute('aria-pressed', String(cameraOff))
+    localVideo.closest('.video-tile')?.classList.toggle('has-video', !cameraOff)
+  }).catch((error: unknown) => {
+    cameraOff = !cameraOff
+    setCallStatus(error instanceof Error ? error.message : 'Could not change camera state.', true)
+  })
 })
 
-inviteButton.addEventListener('click', async () => {
+$('#copyLink')!.addEventListener('click', async () => {
   const inviteUrl = `${location.origin}${location.pathname}?room=${activeRoom}`
   try {
     await navigator.clipboard.writeText(inviteUrl)
-    setCallStatus('Invite link copied. Send it to your brother.')
+    setCallStatus('Invite link copied. Send it privately to your family.')
   } catch {
-    setCallStatus(`Copy this invite link and send it to your brother: ${inviteUrl}`)
+    setCallStatus(`Copy this invite link and send it to your family: ${inviteUrl}`)
   }
 })
 
-$('#leaveCall')!.addEventListener('click', leaveCall)
+$('#leaveCall')!.addEventListener('click', () => void leaveCall())
