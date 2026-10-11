@@ -309,18 +309,18 @@ async function joinRoom(roomName: string) {
     await room?.disconnect()
     room = undefined
     setConnectionState('Could not join the call', true)
-    setCallStatus(
+    const message =
       error instanceof DOMException && error.name === 'NotAllowedError'
         ? 'Camera or microphone permission was denied. Allow access in your browser settings, then try again.'
         : error instanceof Error
           ? error.message
-          : 'Could not start the call. Please try again.',
-      true,
-    )
+          : 'Could not start the call. Please try again.'
     localVideo.srcObject = null
     localVideo.closest('.video-tile')?.classList.remove('has-video')
     callScreen.setAttribute('hidden', '')
     joinCard.removeAttribute('hidden')
+    joinStatus.textContent = message
+    joinStatus.classList.add('error')
   }
 }
 

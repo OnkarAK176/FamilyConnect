@@ -42,8 +42,8 @@ Audio/video calls use LiveKit Cloud as a Selective Forwarding Unit (SFU). Media 
 
 1. Create a LiveKit Cloud Build project (free tier, no credit card currently required).
 2. In LiveKit Cloud, create an API key and copy its URL, key, and secret.
-3. Add `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` to the Render service environment. Keep the API secret on the backend; never put it in GitHub Pages or browser code.
-4. Open `https://OnkarAK176.github.io/FamilyConnect/` in a modern browser on a secure `https://` page.
+3. Add `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` to the separate `familyconnect-group-calls` Render service. Keep the API secret on the backend; never put it in GitHub Pages or browser code.
+4. Open `https://onkarak176.github.io/FamilyConnect/` in a modern browser on a secure `https://` page.
 5. Enter your name and select **Start a call**. Allow camera and microphone access.
 6. Select **Copy invite link** and send the link privately to your family.
 7. Each family member opens the link, enters a name, selects **Join this call**, and allows camera and microphone access.
@@ -72,18 +72,19 @@ This repository is prepared for a low-cost deployment setup:
 
 1. In repository **Settings → Pages**, set the build and deployment source to **GitHub Actions**.
 2. Push to `main`; `.github/workflows/deploy-frontend.yml` builds and publishes `frontend/dist`.
-3. The workflow sets `VITE_API_URL` to the Render API for production.
-4. Set the Render `FAMILYCONNECT_ALLOWED_ORIGINS` variable to include `https://onkarak176.github.io`.
+3. The workflow sets `VITE_API_URL` to the separate group-call Render service.
+4. The new Render service's `FAMILYCONNECT_ALLOWED_ORIGINS` includes `https://onkarak176.github.io`.
 
 ### Backend deployment (Render)
 
 1. Push the repository to GitHub.
-2. Create a new Render web service.
+2. Create a new free Render web service named `familyconnect-group-calls`. This is separate from the existing two-person service; leave the existing service unchanged.
 3. Choose the repository and set the root directory to `backend` if needed.
 4. Use the included Docker configuration in `backend/Dockerfile`.
 5. Add environment variables:
    - `FAMILYCONNECT_TOKEN_SECRET=<strong-random-value>`
-   - `FAMILYCONNECT_ALLOWED_ORIGINS=https://your-netlify-site.netlify.app`
+   - `FAMILYCONNECT_ALLOWED_ORIGINS=https://onkarak176.github.io`
+   - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` from LiveKit Cloud
 
 ### Cost expectation
 

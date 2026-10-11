@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: familyconnect-api
+    name: familyconnect-group-calls
     env: docker
     rootDir: backend
     dockerfilePath: ./Dockerfile
@@ -11,7 +11,7 @@ services:
       - key: FAMILYCONNECT_TOKEN_SECRET
         generateValue: true
       - key: FAMILYCONNECT_ALLOWED_ORIGINS
-        value: https://your-netlify-site.netlify.app
+        value: https://onkarak176.github.io
       - key: LIVEKIT_URL
         sync: false
       - key: LIVEKIT_API_KEY

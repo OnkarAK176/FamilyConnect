@@ -33,7 +33,7 @@ jobs:
         working-directory: frontend
         run: npm ci && npm run build
         env:
-          VITE_API_URL: https://familyconnect-3z5o.onrender.com/api
+          VITE_API_URL: https://familyconnect-group-calls.onrender.com/api
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload Pages artifact
