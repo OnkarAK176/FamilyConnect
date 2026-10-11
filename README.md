@@ -42,8 +42,8 @@ Audio/video calls use LiveKit Cloud as a Selective Forwarding Unit (SFU). Media 
 
 1. Create a LiveKit Cloud Build project (free tier, no credit card currently required).
 2. In LiveKit Cloud, create an API key and copy its URL, key, and secret.
-3. Add `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` to the Render service environment. Keep the API secret on the backend; never put it in Netlify or browser code.
-4. Open the FamilyConnect site in a modern browser on a secure `https://` page.
+3. Add `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` to the Render service environment. Keep the API secret on the backend; never put it in GitHub Pages or browser code.
+4. Open `https://OnkarAK176.github.io/FamilyConnect/` in a modern browser on a secure `https://` page.
 5. Enter your name and select **Start a call**. Allow camera and microphone access.
 6. Select **Copy invite link** and send the link privately to your family.
 7. Each family member opens the link, enters a name, selects **Join this call**, and allows camera and microphone access.
@@ -65,18 +65,15 @@ Each room is capped at 20 participants. The current LiveKit Cloud Build allowanc
 
 This repository is prepared for a low-cost deployment setup:
 
-- Frontend: Netlify free static hosting
+- Frontend: GitHub Pages static hosting
 - Backend: Render free web service via Docker
 
-### Frontend deployment (Netlify)
+### Frontend deployment (GitHub Pages)
 
-1. Push the repository to GitHub.
-2. Import the repo into Netlify.
-3. Set the base directory to `frontend`.
-4. Set build command to `npm install && npm run build`.
-5. Set publish directory to `frontend/dist`.
-6. Add a production environment variable:
-   - `VITE_API_URL=https://your-render-app.onrender.com/api`
+1. In repository **Settings → Pages**, set the build and deployment source to **GitHub Actions**.
+2. Push to `main`; `.github/workflows/deploy-frontend.yml` builds and publishes `frontend/dist`.
+3. The workflow sets `VITE_API_URL` to the Render API for production.
+4. Set the Render `FAMILYCONNECT_ALLOWED_ORIGINS` variable to include `https://onkarak176.github.io`.
 
 ### Backend deployment (Render)
 
