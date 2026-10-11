@@ -1,10 +1,10 @@
 # FamilyConnect
 
-FamilyConnect is a private family video-calling web application built for small-family groups, with support for up to 50 participants and a focus on trusted access, secure meeting links, and responsive mobile/desktop use.
+FamilyConnect is a two-person family video-calling web application with private invite links and a responsive mobile/desktop interface.
 
 ## Project architecture
 
-- Frontend: React + Vite in `frontend/`
+- Frontend: TypeScript + Vite in `frontend/`
 - Backend: Java + Spring Boot REST API in `backend/`
 - Database: PostgreSQL target with H2 in-memory prototype testing in `backend/`
 - Deployment docs: `docs/`
@@ -27,8 +27,8 @@ Required values:
 1. Phase 0: inspect and plan
 2. Phase 1: scaffold the repository
 3. Phase 2: authentication and family membership
-4. Phase 3: rooms and secure LiveKit token issuance
-5. Phase 4: React meeting interface
+4. Phase 3: rooms and WebRTC call signaling
+5. Phase 4: two-person WebRTC calling interface
 6. Phase 5: end-to-end integration
 7. Phase 6: performance and 50-person preparation
 8. Phase 7: deployment and security review
@@ -36,13 +36,24 @@ Required values:
 
 ## Current status
 
-This repository is being built incrementally, one phase at a time, with verification after each phase.
+Two-person audio/video calls use browser WebRTC for media and the backend WebSocket endpoint for call signaling. Media is sent directly between the two browsers; the backend does not record or relay the audio/video.
+
+## Start a call
+
+1. Open the FamilyConnect site in a modern browser on a secure `https://` page.
+2. Enter your name and select **Start a call**. Allow camera and microphone access.
+3. Select **Copy invite link** and send the link privately to your brother.
+4. Your brother opens the link, enters his name, selects **Join this call**, and allows camera and microphone access.
+5. Use the mic and camera buttons to toggle them, and **Leave call** to hang up.
+
+The free setup uses a public STUN server for direct browser connections and does not provide a TURN relay. Some restrictive networks may prevent a direct call; reliable calling on those networks requires configuring a TURN service. The free Render backend may sleep when idle, so the first call after inactivity can take a minute to connect. Calls support two participants, not 50.
 
 ## Deployment and security notes
 
 - The backend token secret must come from an environment variable in real deployments.
 - CORS origins are configured from environment variables instead of hard-coded localhost values.
-- Room join tokens are short-lived and signed with HMAC-SHA256.
+- Existing family membership API tokens are short-lived and signed with HMAC-SHA256.
+- WebRTC audio/video is peer-to-peer. Anyone with a call link can join its two-person room; only share the link with the intended caller.
 - The prototype intentionally uses H2 for local validation and should be replaced by PostgreSQL before production use.
 
 ## Free-tier deployment plan
