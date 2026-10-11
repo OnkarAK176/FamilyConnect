@@ -75,3 +75,5 @@ This repository is prepared for a low-cost deployment setup:
 ### Cost expectation
 
 This setup is designed for free-tier usage as far as the hosting providers allow. The app is not production-hardened yet, so it should be treated as a prototype deployment, not a full production environment.
+
+Render's free web service may sleep after inactivity and take about a minute to wake up. The current backend uses an in-memory H2 database, so family/member/room data is temporary and can be lost whenever the service restarts or sleeps. Do not store data that needs to persist until a persistent database is configured.
