@@ -24,7 +24,7 @@ app.innerHTML = `
     <section class="join-card" id="joinCard">
       <p class="eyebrow">A little closer, wherever you are</p>
       <h2 id="welcomeTitle">Start a family call</h2>
-      <p class="intro">Invite up to 19 family members to join you in a secure video call.</p>
+      <p class="intro">Invite your family to join you in a secure video call.</p>
       <label for="displayName">Your name</label>
       <input id="displayName" maxlength="60" autocomplete="name" placeholder="Enter your name" />
       <div class="join-actions">
@@ -39,7 +39,6 @@ app.innerHTML = `
       <header class="call-header">
         <div><p class="eyebrow">Family room</p><h2 id="roomLabel">Call</h2></div>
         <div class="call-meta">
-          <span class="participant-count" id="participantCount">1 / 20 people</span>
           <span class="connection-state" id="connectionState" role="status">Connecting…</span>
         </div>
       </header>
@@ -51,10 +50,22 @@ app.innerHTML = `
         </article>
       </div>
       <div class="call-actions">
-        <button class="control" id="micButton" type="button" aria-pressed="false">Mute mic</button>
-        <button class="control" id="cameraButton" type="button" aria-pressed="false">Turn camera off</button>
-        <button class="control share-button" id="copyLink" type="button">Copy invite link</button>
-        <button class="control danger" id="leaveCall" type="button">Leave call</button>
+        <button class="control" id="micButton" type="button" aria-label="Mute mic" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v7a3 3 0 0 0 3 3Z"/><path d="M19 11v1a7 7 0 0 1-14 0v-1M12 19v3m-4 0h8"/></svg>
+          <span class="control-label">Mute mic</span>
+        </button>
+        <button class="control" id="cameraButton" type="button" aria-label="Turn camera off" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg>
+          <span class="control-label">Camera</span>
+        </button>
+        <button class="control share-button" id="copyLink" type="button" aria-label="Copy invite link">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.1 0l3-3A5 5 0 0 0 13 2.9l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.1 0l-3 3A5 5 0 0 0 11 21.1l1.7-1.7"/></svg>
+          <span class="control-label">Copy link</span>
+        </button>
+        <button class="control danger" id="leaveCall" type="button" aria-label="Leave call">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14.5a13 13 0 0 1 16 0l1.2 1a1 1 0 0 1 .2 1.4l-1.7 2.2a1 1 0 0 1-1.2.3l-3.2-1.4a1 1 0 0 1-.6-.9v-1.3a10 10 0 0 0-5.4 0v1.3a1 1 0 0 1-.6.9l-3.2 1.4a1 1 0 0 1-1.2-.3L2.6 17a1 1 0 0 1 .2-1.4Z"/></svg>
+          <span class="control-label">Leave</span>
+        </button>
       </div>
       <p class="call-status" id="callStatus" aria-live="polite"></p>
     </section>
@@ -69,16 +80,18 @@ const callScreen = $('#callScreen')!
 const displayNameInput = $('#displayName') as HTMLInputElement
 const startButton = $('#startCall')!
 const joinButton = $('#joinCall')!
+const callApp = $('.call-app')!
 const welcomeTitle = $('#welcomeTitle')!
 const callStatus = $('#callStatus')!
 const joinStatus = $('#joinStatus')!
 const connectionState = $('#connectionState')!
-const participantCount = $('#participantCount')!
 const participantGrid = $('#participantGrid')!
 const localVideo = $('#localVideo') as HTMLVideoElement
 const localName = $('#localName')!
 const micButton = $('#micButton')!
 const cameraButton = $('#cameraButton')!
+const micButtonLabel = micButton.querySelector<HTMLElement>('.control-label')!
+const cameraButtonLabel = cameraButton.querySelector<HTMLElement>('.control-label')!
 const roomCode = new URLSearchParams(location.search).get('room')
 const participantTiles = new Map<string, HTMLVideoElement>()
 const remoteAudioElements = new Map<string, HTMLMediaElement[]>()
@@ -89,6 +102,7 @@ let activeName = ''
 let muted = false
 let cameraOff = false
 let shuttingDown = false
+let releaseRoomLock: (() => void) | undefined
 
 if (roomCode && /^[a-f0-9]{32}$/.test(roomCode)) {
   welcomeTitle.textContent = 'You’ve been invited to a family call'
@@ -107,10 +121,6 @@ function setConnectionState(message: string, error = false) {
 function setCallStatus(message: string, error = false) {
   callStatus.textContent = message
   callStatus.classList.toggle('error', error)
-}
-
-function updateParticipantCount() {
-  participantCount.textContent = `${(room?.remoteParticipants.size ?? 0) + 1} / 20 people`
 }
 
 function createParticipantTile(participant: RemoteParticipant) {
@@ -144,7 +154,6 @@ function createParticipantTile(participant: RemoteParticipant) {
 
   participantGrid.append(tile)
   participantTiles.set(participant.identity, video)
-  updateParticipantCount()
   return video
 }
 
@@ -155,7 +164,6 @@ function removeParticipant(participant: RemoteParticipant) {
     element.remove()
   }
   remoteAudioElements.delete(participant.identity)
-  updateParticipantCount()
 }
 
 function subscribeTrack(track: Track, participant: RemoteParticipant) {
@@ -195,12 +203,10 @@ function registerRoomEvents(callRoom: Room, roomEvents: typeof RoomEvent) {
     .on(roomEvents.Connected, () => {
       setConnectionState('Connected')
       setCallStatus('Your family call is ready. Share the invite link to bring everyone in.')
-      updateParticipantCount()
     })
     .on(roomEvents.Reconnecting, () => setConnectionState('Reconnecting…'))
     .on(roomEvents.Reconnected, () => setConnectionState('Connected'))
     .on(roomEvents.Disconnected, () => {
-      updateParticipantCount()
       if (!shuttingDown) {
         setConnectionState('Disconnected', true)
         setCallStatus('You were disconnected from the call. Please leave and rejoin.', true)
@@ -211,7 +217,6 @@ function registerRoomEvents(callRoom: Room, roomEvents: typeof RoomEvent) {
     })
     .on(roomEvents.ParticipantConnected, (participant) => {
       createParticipantTile(participant)
-      updateParticipantCount()
     })
     .on(roomEvents.ParticipantDisconnected, (participant) => {
       removeParticipant(participant)
@@ -256,6 +261,32 @@ async function joinRoom(roomName: string) {
     return
   }
 
+  if ('locks' in navigator) {
+    const lockState = await new Promise<{ acquired: boolean; error?: unknown }>((resolve) => {
+      void navigator.locks.request(
+        `familyconnect-call-${roomName}`,
+        { mode: 'exclusive', ifAvailable: true },
+        async (lock) => {
+          resolve({ acquired: Boolean(lock) })
+          if (lock) {
+            await new Promise<void>((release) => {
+              releaseRoomLock = release
+            })
+          }
+        },
+      ).catch((error: unknown) => {
+        resolve({ acquired: false, error })
+      })
+    })
+    if (!lockState.acquired) {
+      joinStatus.textContent = lockState.error instanceof Error
+        ? `Could not secure this call tab: ${lockState.error.message}`
+        : 'This call is already open in another tab on this device. Close that tab before joining here.'
+      joinStatus.classList.add('error')
+      return
+    }
+  }
+
   shuttingDown = false
   activeRoom = roomName
   joinStatus.textContent = ''
@@ -263,6 +294,8 @@ async function joinRoom(roomName: string) {
   setCallStatus('')
   joinCard.setAttribute('hidden', '')
   callScreen.removeAttribute('hidden')
+  callApp.classList.add('in-call')
+  document.body.classList.add('in-call')
   $('#roomLabel')!.textContent = `Family call · ${roomName.slice(0, 6)}`
   localName.textContent = `${activeName} (you)`
   setConnectionState('Connecting to the call…')
@@ -304,10 +337,11 @@ async function joinRoom(roomName: string) {
         localVideo.closest('.video-tile')?.classList.add('has-video')
       }
     }
-    updateParticipantCount()
   } catch (error) {
     await room?.disconnect()
     room = undefined
+    releaseRoomLock?.()
+    releaseRoomLock = undefined
     setConnectionState('Could not join the call', true)
     const message =
       error instanceof DOMException && error.name === 'NotAllowedError'
@@ -318,6 +352,8 @@ async function joinRoom(roomName: string) {
     localVideo.srcObject = null
     localVideo.closest('.video-tile')?.classList.remove('has-video')
     callScreen.setAttribute('hidden', '')
+    callApp.classList.remove('in-call')
+    document.body.classList.remove('in-call')
     joinCard.removeAttribute('hidden')
     joinStatus.textContent = message
     joinStatus.classList.add('error')
@@ -328,6 +364,8 @@ async function leaveCall() {
   shuttingDown = true
   await room?.disconnect()
   room = undefined
+  releaseRoomLock?.()
+  releaseRoomLock = undefined
   for (const video of participantTiles.values()) {
     video.closest('.video-tile')?.remove()
   }
@@ -339,12 +377,16 @@ async function leaveCall() {
   localVideo.srcObject = null
   localVideo.closest('.video-tile')?.classList.remove('has-video')
   callScreen.setAttribute('hidden', '')
+  callApp.classList.remove('in-call')
+  document.body.classList.remove('in-call')
   joinCard.removeAttribute('hidden')
   setCallStatus('')
   muted = false
   cameraOff = false
-  micButton.textContent = 'Mute mic'
-  cameraButton.textContent = 'Turn camera off'
+  micButtonLabel.textContent = 'Mute mic'
+  cameraButtonLabel.textContent = 'Camera'
+  micButton.setAttribute('aria-label', 'Mute mic')
+  cameraButton.setAttribute('aria-label', 'Turn camera off')
   micButton.setAttribute('aria-pressed', 'false')
   cameraButton.setAttribute('aria-pressed', 'false')
 
@@ -370,7 +412,8 @@ micButton.addEventListener('click', () => {
   if (!room) return
   muted = !muted
   void room.localParticipant.setMicrophoneEnabled(!muted).then(() => {
-    micButton.textContent = muted ? 'Unmute mic' : 'Mute mic'
+    micButtonLabel.textContent = muted ? 'Unmute' : 'Mute mic'
+    micButton.setAttribute('aria-label', muted ? 'Unmute mic' : 'Mute mic')
     micButton.setAttribute('aria-pressed', String(muted))
   }).catch((error: unknown) => {
     muted = !muted
@@ -382,7 +425,8 @@ cameraButton.addEventListener('click', () => {
   if (!room) return
   cameraOff = !cameraOff
   void room.localParticipant.setCameraEnabled(!cameraOff).then(() => {
-    cameraButton.textContent = cameraOff ? 'Turn camera on' : 'Turn camera off'
+    cameraButtonLabel.textContent = cameraOff ? 'Camera on' : 'Camera'
+    cameraButton.setAttribute('aria-label', cameraOff ? 'Turn camera on' : 'Turn camera off')
     cameraButton.setAttribute('aria-pressed', String(cameraOff))
     localVideo.closest('.video-tile')?.classList.toggle('has-video', !cameraOff)
   }).catch((error: unknown) => {
